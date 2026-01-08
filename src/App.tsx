@@ -1,12 +1,26 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import SnakeGame from "./Components/SnakeGame";
 import Leaderboard from "./Components/Leaderboard";
 import WalletButton from "./Components/WalletButton";
+
+import { useAccount, useSwitchChain } from "wagmi";
+import { base } from "wagmi/chains";
 
 const App: React.FC = () => {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [onChainScore, setOnChainScore] = useState<number | null>(null);
   const [status, setStatus] = useState<string>("");
+
+  // 🔹 Wallet & chain state
+  const { isConnected, chainId } = useAccount();
+  const { switchChain } = useSwitchChain();
+
+  // 🔹 Force Base network (CRITICAL for Base mini apps)
+  useEffect(() => {
+    if (isConnected && chainId !== base.id) {
+      switchChain({ chainId: base.id });
+    }
+  }, [isConnected, chainId, switchChain]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col items-center justify-center p-4">
