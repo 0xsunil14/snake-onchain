@@ -1,43 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import React, { useState } from "react";
 import SnakeGame from "./Components/SnakeGame";
 import Leaderboard from "./Components/Leaderboard";
-import { sdk } from "@farcaster/miniapp-sdk";
+import WalletButton from "./Components/WalletButton";
 
 const App: React.FC = () => {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [onChainScore, setOnChainScore] = useState<number | null>(null);
   const [status, setStatus] = useState<string>("");
-
-  // Use ref to ensure ready() is only called once
-  const readyCalledRef = useRef(false);
-
-  useEffect(() => {
-    // Prevent multiple calls in React StrictMode
-    if (readyCalledRef.current) {
-      return;
-    }
-
-    const initSDK = async () => {
-      try {
-        readyCalledRef.current = true;
-
-        console.log("🚀 Calling sdk.actions.ready()...");
-
-        // Call ready immediately
-        await sdk.actions.ready();
-
-        console.log("✅ SDK ready() called successfully!");
-        console.log("SDK Context:", sdk.context);
-      } catch (error) {
-        console.error("❌ SDK ready() error:", error);
-        // Reset ref on error to allow retry
-        readyCalledRef.current = false;
-      }
-    };
-
-    initSDK();
-  }, []); // Empty deps - run once
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col items-center justify-center p-4">
@@ -48,10 +17,8 @@ const App: React.FC = () => {
             🐍 Snake On-Chain
           </h1>
 
-          <ConnectButton
-            chainStatus="icon"
-            accountStatus={{ smallScreen: "avatar", largeScreen: "full" }}
-          />
+          {/* Base-only Wallet Button */}
+          <WalletButton />
         </div>
 
         {/* Game + Leaderboard */}
@@ -64,11 +31,12 @@ const App: React.FC = () => {
           )}
 
           {onChainScore !== null && (
-            <div className="text-sm text-green-400 mt-1">
+            <div className="text-sm text-green-400 mt-1 text-center">
               On-chain High Score: {onChainScore}
             </div>
           )}
-          <div className="flex flex-col md:flex-row gap-6 justify-center items-start">
+
+          <div className="flex flex-col lg:flex-row gap-6 justify-center items-start">
             <SnakeGame
               setOnChainScore={setOnChainScore}
               setTxHash={setTxHash}

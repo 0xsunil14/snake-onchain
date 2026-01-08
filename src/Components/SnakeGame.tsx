@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { ethers } from "ethers";
 import contractABI from "../SnakeOnChainABI.json";
 
@@ -28,27 +28,17 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
   const [running, setRunning] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [score, setScore] = useState(0);
-  const [moveDelay, setMoveDelay] = useState(300);
+  const [moveDelay, setMoveDelay] = useState(150);
   const [snake, setSnake] = useState<Point[]>([]);
   const [dir, setDir] = useState<Direction>({ x: 1, y: 0 });
-  const [tablet, setTablet] = useState<Point | null>(null);
-  const [cellSize] = useState(20);
-  const [cols, setCols] = useState(20);
-  const [rows, setRows] = useState(20);
+  const [food, setFood] = useState<Point | null>(null);
+  const [paused, setPaused] = useState(false);
+  
+  const cellSize = 20;
+  const cols = 25;
+  const rows = 25;
 
-  useEffect(() => {
-    const resize = () => {
-      const cw = Math.floor(window.innerWidth * 0.6);
-      const ch = Math.floor(window.innerHeight * 0.6);
-      setCols(Math.floor(cw / cellSize));
-      setRows(Math.floor(ch / cellSize));
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, [cellSize]);
-
-  const spawnTablet = (snakeArr: Point[]): Point => {
+  const spawnFood = useCallback((snakeArr: Point[]): Point => {
     const occupied = new Set(snakeArr.map((p) => `${p.x},${p.y}`));
     for (let i = 0; i < 500; i++) {
       const x = Math.floor(Math.random() * cols);
@@ -56,28 +46,31 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       if (!occupied.has(`${x},${y}`)) return { x, y };
     }
     return { x: 0, y: 0 };
-  };
+  }, [cols, rows]);
 
-  const resetGame = () => {
+  const resetGame = useCallback(() => {
     const midX = Math.floor(cols / 2);
     const midY = Math.floor(rows / 2);
     const startSnake = [
       { x: midX, y: midY },
       { x: midX - 1, y: midY },
+      { x: midX - 2, y: midY },
     ];
     setSnake(startSnake);
     setDir({ x: 1, y: 0 });
     setScore(0);
-    setMoveDelay(300);
-    setTablet(spawnTablet(startSnake));
+    setMoveDelay(150);
+    setFood(spawnFood(startSnake));
     setRunning(true);
     setGameOver(false);
+    setPaused(false);
     setTxHash(null);
     setStatus("");
-  };
+  }, [cols, rows, spawnFood, setTxHash, setStatus]);
 
-  const updateSnake = () => {
-    if (!running || snake.length === 0) return;
+  const updateSnake = useCallback(() => {
+    if (!running || paused || snake.length === 0) return;
+    
     const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
     head.x = (head.x + cols) % cols;
     head.y = (head.y + rows) % rows;
@@ -85,25 +78,25 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     if (snake.some((s) => s.x === head.x && s.y === head.y)) {
       setRunning(false);
       setGameOver(true);
-      setStatus("💀 Game Over!");
+      setStatus("💀 Game Over! Submit your score on-chain!");
       return;
     }
 
     let newSnake = [head, ...snake.slice(0, -1)];
-    if (tablet && head.x === tablet.x && head.y === tablet.y) {
+    if (food && head.x === food.x && head.y === food.y) {
       newSnake = [head, ...snake];
       setScore((s) => s + 1);
-      setTablet(spawnTablet(newSnake));
-      setMoveDelay((d) => Math.max(d - 15, 120));
+      setFood(spawnFood(newSnake));
+      setMoveDelay((d) => Math.max(d - 3, 80));
     }
     setSnake(newSnake);
-  };
+  }, [running, paused, snake, dir, food, cols, rows, spawnFood, setStatus]);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running || paused) return;
     const id = setTimeout(updateSnake, moveDelay);
     return () => clearTimeout(id);
-  }, [snake, dir, running, moveDelay, tablet]);
+  }, [running, paused, updateSnake, moveDelay]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -116,20 +109,44 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     canvas.width = width;
     canvas.height = height;
 
+    // Background with grid
     ctx.fillStyle = "#0f172a";
     ctx.fillRect(0, 0, width, height);
+    
+    // Draw grid
+    ctx.strokeStyle = "#1e293b";
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= cols; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * cellSize, 0);
+      ctx.lineTo(i * cellSize, height);
+      ctx.stroke();
+    }
+    for (let i = 0; i <= rows; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, i * cellSize);
+      ctx.lineTo(width, i * cellSize);
+      ctx.stroke();
+    }
 
-    if (tablet) {
+    // Draw food with glow
+    if (food) {
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = "#10b981";
       ctx.fillStyle = "#10b981";
       ctx.fillRect(
-        tablet.x * cellSize + 2,
-        tablet.y * cellSize + 2,
+        food.x * cellSize + 2,
+        food.y * cellSize + 2,
         cellSize - 4,
         cellSize - 4
       );
+      ctx.shadowBlur = 0;
     }
 
+    // Draw snake with glow
     snake.forEach((s, i) => {
+      ctx.shadowBlur = i === 0 ? 20 : 10;
+      ctx.shadowColor = i === 0 ? "#60a5fa" : "#3b82f6";
       ctx.fillStyle = i === 0 ? "#60a5fa" : "#3b82f6";
       ctx.fillRect(
         s.x * cellSize + 1,
@@ -138,20 +155,32 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
         cellSize - 2
       );
     });
-  }, [snake, tablet, cols, rows, cellSize]);
+    ctx.shadowBlur = 0;
+  }, [snake, food, cols, rows, cellSize]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!running) return;
+      
+      if (e.key === " " || e.key === "Escape") {
+        e.preventDefault();
+        setPaused(p => !p);
+        return;
+      }
+      
       const map: Record<string, Direction> = {
         ArrowUp: { x: 0, y: -1 },
         w: { x: 0, y: -1 },
+        W: { x: 0, y: -1 },
         ArrowDown: { x: 0, y: 1 },
         s: { x: 0, y: 1 },
+        S: { x: 0, y: 1 },
         ArrowLeft: { x: -1, y: 0 },
         a: { x: -1, y: 0 },
+        A: { x: -1, y: 0 },
         ArrowRight: { x: 1, y: 0 },
         d: { x: 1, y: 0 },
+        D: { x: 1, y: 0 },
       };
       const newDir = map[e.key];
       if (!newDir) return;
@@ -179,10 +208,14 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       const t = e.changedTouches[0];
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
+      
+      if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return;
+      
       setDir((d) => {
-        if (Math.abs(dx) > Math.abs(dy))
-          return dx > 0 && d.x !== -1 ? { x: 1, y: 0 } : { x: -1, y: 0 };
-        return dy > 0 && d.y !== -1 ? { x: 0, y: 1 } : { x: 0, y: -1 };
+        if (Math.abs(dx) > Math.abs(dy)) {
+          return dx > 0 && d.x !== -1 ? { x: 1, y: 0 } : d.x !== 1 ? { x: -1, y: 0 } : d;
+        }
+        return dy > 0 && d.y !== -1 ? { x: 0, y: 1 } : d.y !== 1 ? { x: 0, y: -1 } : d;
       });
     };
 
@@ -199,7 +232,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     
     try {
       if (!window.ethereum) {
-        setStatus("⚠️ No wallet found");
+        setStatus("⚠️ No wallet found. Please install MetaMask or Coinbase Wallet.");
         return;
       }
 
@@ -218,7 +251,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
 
       setStatus("⏳ Sending transaction...");
 
-      // Send transaction with explicit gas limit
       const tx = await contract.submitScore(score, {
         gasLimit: 200000,
       });
@@ -228,18 +260,15 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       
       setStatus("⏳ Waiting for confirmation...");
 
-      // Wait for transaction receipt
       const receipt = await tx.wait();
 
       console.log("📥 Transaction receipt:", receipt);
 
-      // Check transaction status
       if (receipt && receipt.status === 1) {
         console.log("✅ Transaction SUCCESS!");
         setTxHash(localTxHash);
         setStatus("✅ Score submitted successfully!");
 
-        // Fetch updated score
         try {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           const [highScore] = await contract.getMyScore();
@@ -254,12 +283,10 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     } catch (err: any) {
       console.error("❌ Transaction error:", err);
 
-      // If we have a tx hash, the transaction was sent
       if (localTxHash) {
         setTxHash(localTxHash);
         setStatus("✅ Transaction submitted! Verifying...");
         
-        // Try to verify after a delay
         setTimeout(async () => {
           try {
             const provider = new ethers.BrowserProvider(window.ethereum);
@@ -276,7 +303,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
         return;
       }
 
-      // Handle errors
       const errorMessage = err?.message || String(err);
       
       if (err?.code === 4001 || errorMessage.includes("user rejected")) {
@@ -290,57 +316,80 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-4">
-      <div className="w-[90vw] max-w-[600px] aspect-square rounded-2xl overflow-hidden border-4 border-slate-700 shadow-2xl">
+    <div className="flex flex-col items-center gap-4 bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl shadow-2xl">
+      {/* Game Canvas */}
+      <div className="relative">
         <canvas
           ref={canvasRef}
-          className="w-full h-full rounded-2xl bg-slate-900 shadow-inner touch-none"
+          className="rounded-xl border-4 border-slate-700 shadow-2xl touch-none"
         />
+        
+        {/* Overlay for Pause/Game Over */}
+        {(paused || gameOver) && (
+          <div className="absolute inset-0 bg-black/70 rounded-xl flex items-center justify-center backdrop-blur-sm">
+            <div className="text-center p-6">
+              <h2 className="text-4xl font-bold text-white mb-4">
+                {gameOver ? "🎮 Game Over!" : "⏸️ Paused"}
+              </h2>
+              <p className="text-2xl text-blue-400 font-bold mb-4">
+                Score: {score}
+              </p>
+              {!gameOver && (
+                <p className="text-gray-300 text-sm">Press SPACE or ESC to resume</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-wrap gap-3 justify-center items-center mt-6">
+      {/* Score Display */}
+      <div className="flex items-center gap-6 text-center">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-3 rounded-xl shadow-lg">
+          <p className="text-xs text-blue-200 uppercase tracking-wide">Score</p>
+          <p className="text-3xl font-bold text-white">{score}</p>
+        </div>
+        
+        {gameOver && (
+          <div className="bg-gradient-to-r from-red-600 to-red-700 px-6 py-3 rounded-xl shadow-lg animate-pulse">
+            <p className="text-xs text-red-200 uppercase tracking-wide">Game Over</p>
+            <p className="text-xl font-bold text-white">Submit On-Chain!</p>
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-wrap gap-3 justify-center">
         <button
           onClick={resetGame}
-          className="px-4 py-2 rounded-xl bg-green-600 hover:bg-green-700 transition-transform transform hover:scale-105 shadow-md"
+          className="px-6 py-3 rounded-xl bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold shadow-lg transition-all transform hover:scale-105"
         >
-          {gameOver ? "Restart Game" : "Start / Restart"}
+          {gameOver ? "🔄 Play Again" : "🎮 New Game"}
         </button>
 
-        <button
-          onClick={() => setRunning((r) => !r)}
-          disabled={gameOver}
-          className="px-4 py-2 rounded-xl bg-yellow-500 text-black hover:bg-yellow-400 transition-transform transform hover:scale-105 shadow-md disabled:opacity-50"
-        >
-          {running ? "Pause" : "Resume"}
-        </button>
-      </div>
-
-      <div className="text-lg font-semibold text-white mt-3">
-        🧮 Score: {score}
-      </div>
-
-      <div className="flex flex-col items-center w-full">
-        <button
-          onClick={submitOnChain}
-          disabled={score === 0}
-          className="w-[90vw] max-w-[600px] mt-4 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm shadow-md transition-transform transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Submit On-chain (FREE - Gas Only)
-        </button>
-
-        {status && (
-          <p
-            className={`mt-2 text-sm font-semibold text-center max-w-[600px] px-4 ${
-              status.includes("✅")
-                ? "text-green-400"
-                : status.includes("❌")
-                ? "text-red-400"
-                : "text-yellow-400"
-            }`}
+        {running && !gameOver && (
+          <button
+            onClick={() => setPaused(p => !p)}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-white font-semibold shadow-lg transition-all transform hover:scale-105"
           >
-            {status}
-          </p>
+            {paused ? "▶️ Resume" : "⏸️ Pause"}
+          </button>
         )}
+      </div>
+
+      {/* Submit Button */}
+      <button
+        onClick={submitOnChain}
+        disabled={score === 0}
+        className="w-full px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+      >
+        {score === 0 ? "🎮 Play to Submit Score" : "🚀 Submit Score On-Chain (FREE)"}
+      </button>
+
+      {/* Instructions */}
+      <div className="text-xs text-gray-400 text-center space-y-1 max-w-md">
+        <p>🎮 Use Arrow Keys or WASD to move</p>
+        <p>📱 Swipe on mobile</p>
+        <p>⏸️ Press SPACE or ESC to pause</p>
       </div>
     </div>
   );

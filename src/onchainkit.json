@@ -1,0 +1,11 @@
+{
+  "name": "Snake On Base",
+  "version": "1.0.0",
+  "iconUrl": "https://snake-game-xyz.vercel.app/snake-logo.png",
+  "splashImageUrl": "https://snake-game-xyz.vercel.app",
+  "splashBackgroundColor": "#0f172a",
+  "homeUrl": "https://snake-game-xyz.vercel.app/splash.png",
+  "description": "Play the classic Snake game and compete on the Base blockchain leaderboard!",
+  "primaryCategory": "games",
+  "tags": ["game", "arcade", "snake", "base", "onchain", "leaderboard"]
+}
