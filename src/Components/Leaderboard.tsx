@@ -73,7 +73,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ txHash }) => {
         
         const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider);
 
-        const handleScoreSubmitted = (player: string, score: bigint, timestamp: bigint) => {
+        const handleScoreSubmitted = (player: string, score: bigint) => {
           console.log(`🎯 New score event: ${player} scored ${score.toString()}`);
           // Reload leaderboard after score submission
           setTimeout(() => {
