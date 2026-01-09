@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { ethers } from "ethers";
+import { useAccount, useWalletClient, usePublicClient } from "wagmi";
+import { parseEther } from "viem";
 import contractABI from "../SnakeOnChainABI.json";
 
 const CONTRACT_ADDRESS = "0xcC8E9a9CeBF3b3a6dd21BD79A7756E3d5f4C9061";
@@ -13,17 +14,15 @@ interface SnakeGameProps {
   setStatus: React.Dispatch<React.SetStateAction<string>>;
 }
 
-declare global {
-  interface Window {
-    ethereum?: any;
-  }
-}
-
 const SnakeGame: React.FC<SnakeGameProps> = ({
   setOnChainScore,
   setTxHash,
   setStatus,
 }) => {
+  const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [running, setRunning] = useState(false);
   const [gameOver, setGameOver] = useState(false);
@@ -109,11 +108,9 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     canvas.width = width;
     canvas.height = height;
 
-    // Background with grid
     ctx.fillStyle = "#0f172a";
     ctx.fillRect(0, 0, width, height);
     
-    // Draw grid
     ctx.strokeStyle = "#1e293b";
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= cols; i++) {
@@ -129,7 +126,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       ctx.stroke();
     }
 
-    // Draw food with glow
     if (food) {
       ctx.shadowBlur = 15;
       ctx.shadowColor = "#10b981";
@@ -143,7 +139,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       ctx.shadowBlur = 0;
     }
 
-    // Draw snake with glow
     snake.forEach((s, i) => {
       ctx.shadowBlur = i === 0 ? 20 : 10;
       ctx.shadowColor = i === 0 ? "#60a5fa" : "#3b82f6";
@@ -204,6 +199,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       startX = t.clientX;
       startY = t.clientY;
     };
+    
     const handleEnd = (e: TouchEvent) => {
       const t = e.changedTouches[0];
       const dx = t.clientX - startX;
@@ -228,87 +224,83 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
   }, []);
 
   const submitOnChain = async () => {
-    let localTxHash = "";
-    
+    if (!isConnected || !address) {
+      setStatus("⚠️ Please connect your wallet first");
+      return;
+    }
+
+    if (!walletClient) {
+      setStatus("⚠️ Wallet not ready. Please try again.");
+      return;
+    }
+
+    if (score <= 0) {
+      setStatus("⚠️ Play the game first to get a score!");
+      return;
+    }
+
     try {
-      if (!window.ethereum) {
-        setStatus("⚠️ No wallet found. Please install MetaMask or Coinbase Wallet.");
-        return;
-      }
-
-      if (score <= 0) {
-        setStatus("⚠️ Play first before submitting!");
-        return;
-      }
-
       setStatus("⏳ Preparing transaction...");
 
-      await window.ethereum.request({ method: "eth_requestAccounts" });
-
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, signer);
-
-      setStatus("⏳ Sending transaction...");
-
-      const tx = await contract.submitScore(score, {
-        gasLimit: 200000,
+      // Use the connected wallet (Coinbase Wallet or MetaMask)
+      const { request } = await publicClient!.simulateContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: contractABI,
+        functionName: 'submitScore',
+        args: [BigInt(score)],
+        account: address,
       });
 
-      localTxHash = tx.hash;
-      console.log("📤 Transaction sent:", localTxHash);
+      setStatus("⏳ Sending transaction via your connected wallet...");
+
+      const hash = await walletClient.writeContract(request);
       
+      console.log("📤 Transaction sent:", hash);
       setStatus("⏳ Waiting for confirmation...");
 
-      const receipt = await tx.wait();
+      const receipt = await publicClient!.waitForTransactionReceipt({ 
+        hash,
+        confirmations: 1 
+      });
 
       console.log("📥 Transaction receipt:", receipt);
 
-      if (receipt && receipt.status === 1) {
+      if (receipt.status === 'success') {
         console.log("✅ Transaction SUCCESS!");
-        setTxHash(localTxHash);
-        setStatus("✅ Score submitted successfully!");
+        setTxHash(hash);
+        setStatus("✅ Score submitted successfully on Base!");
 
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          const [highScore] = await contract.getMyScore();
-          setOnChainScore(Number(highScore));
-          console.log("📊 Updated high score:", Number(highScore));
-        } catch (scoreErr) {
-          console.log("Could not fetch score:", scoreErr);
-        }
+        // Fetch updated score
+        setTimeout(async () => {
+          try {
+            const data = await publicClient!.readContract({
+              address: CONTRACT_ADDRESS as `0x${string}`,
+              abi: contractABI,
+              functionName: 'getMyScore',
+              args: [],
+              account: address,
+            }) as [bigint, bigint];
+
+            setOnChainScore(Number(data[0]));
+            console.log("📊 Updated high score:", Number(data[0]));
+          } catch (err) {
+            console.log("Could not fetch score:", err);
+          }
+        }, 2000);
       } else {
         setStatus("❌ Transaction failed");
       }
     } catch (err: any) {
       console.error("❌ Transaction error:", err);
 
-      if (localTxHash) {
-        setTxHash(localTxHash);
-        setStatus("✅ Transaction submitted! Verifying...");
-        
-        setTimeout(async () => {
-          try {
-            const provider = new ethers.BrowserProvider(window.ethereum);
-            const receipt = await provider.getTransactionReceipt(localTxHash);
-            if (receipt && receipt.status === 1) {
-              setStatus("✅ Score submitted successfully!");
-            } else if (receipt && receipt.status === 0) {
-              setStatus("❌ Transaction failed");
-            }
-          } catch (e) {
-            console.log("Could not verify:", e);
-          }
-        }, 5000);
-        return;
-      }
-
       const errorMessage = err?.message || String(err);
       
-      if (err?.code === 4001 || errorMessage.includes("user rejected")) {
+      if (errorMessage.includes("User rejected") || errorMessage.includes("user rejected")) {
         setStatus("❌ Transaction rejected");
       } else if (errorMessage.includes("insufficient funds")) {
         setStatus("❌ Insufficient funds for gas");
+      } else if (errorMessage.includes("Cooldown active")) {
+        setStatus("❌ Cooldown active. Wait 1 hour between submissions.");
       } else {
         setStatus("❌ Transaction failed. Try again.");
       }
@@ -317,14 +309,12 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
 
   return (
     <div className="flex flex-col items-center gap-4 bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl shadow-2xl">
-      {/* Game Canvas */}
       <div className="relative">
         <canvas
           ref={canvasRef}
           className="rounded-xl border-4 border-slate-700 shadow-2xl touch-none"
         />
         
-        {/* Overlay for Pause/Game Over */}
         {(paused || gameOver) && (
           <div className="absolute inset-0 bg-black/70 rounded-xl flex items-center justify-center backdrop-blur-sm">
             <div className="text-center p-6">
@@ -342,7 +332,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
         )}
       </div>
 
-      {/* Score Display */}
       <div className="flex items-center gap-6 text-center">
         <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-3 rounded-xl shadow-lg">
           <p className="text-xs text-blue-200 uppercase tracking-wide">Score</p>
@@ -357,7 +346,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
         )}
       </div>
 
-      {/* Controls */}
       <div className="flex flex-wrap gap-3 justify-center">
         <button
           onClick={resetGame}
@@ -376,16 +364,18 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
         )}
       </div>
 
-      {/* Submit Button */}
       <button
         onClick={submitOnChain}
-        disabled={score === 0}
+        disabled={!isConnected || score === 0}
         className="w-full px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
       >
-        {score === 0 ? "🎮 Play to Submit Score" : "🚀 Submit Score On-Chain (FREE)"}
+        {!isConnected 
+          ? "Connect Wallet to Submit" 
+          : score === 0 
+          ? "🎮 Play to Submit Score" 
+          : "🚀 Submit Score On Base (FREE)"}
       </button>
 
-      {/* Instructions */}
       <div className="text-xs text-gray-400 text-center space-y-1 max-w-md">
         <p>🎮 Use Arrow Keys or WASD to move</p>
         <p>📱 Swipe on mobile</p>
