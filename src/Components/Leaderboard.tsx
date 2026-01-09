@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ethers } from "ethers";
+import { usePublicClient } from "wagmi";
 import contractABI from "../SnakeOnChainABI.json";
 
 const CONTRACT_ADDRESS = "0xcC8E9a9CeBF3b3a6dd21BD79A7756E3d5f4C9061";
@@ -7,6 +7,7 @@ const CONTRACT_ADDRESS = "0xcC8E9a9CeBF3b3a6dd21BD79A7756E3d5f4C9061";
 interface LeaderboardEntry {
   address: string;
   score: number;
+  rank: number;
 }
 
 interface LeaderboardProps {
@@ -14,39 +15,56 @@ interface LeaderboardProps {
 }
 
 const Leaderboard: React.FC<LeaderboardProps> = ({ txHash }) => {
+  const publicClient = usePublicClient();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPlayers, setTotalPlayers] = useState(0);
+  
+  const ITEMS_PER_PAGE = 10;
 
   const loadLeaderboard = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Always use Base mainnet RPC
-      const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
-      
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider);
-      
-      console.log("📊 Fetching leaderboard from contract:", CONTRACT_ADDRESS);
-      const [addresses, scores] = await contract.getLeaderboard();
 
-      console.log("📊 Raw data - Addresses:", addresses);
-      console.log("📊 Raw data - Scores:", scores);
+      if (!publicClient) {
+        setError("Client not ready");
+        return;
+      }
 
+      // Get leaderboard
+      const data = await publicClient.readContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: contractABI,
+        functionName: 'getLeaderboard',
+      }) as [readonly `0x${string}`[], readonly bigint[]];
+
+      const [addresses, scores] = data;
+
+      console.log("📊 Leaderboard data:", { 
+        totalPlayers: addresses.length,
+        addresses: addresses.slice(0, 5),
+        scores: scores.slice(0, 5).map(s => Number(s))
+      });
+
+      // Format leaderboard entries with ranks
       const formatted: LeaderboardEntry[] = addresses
-        .map((addr: string, i: number) => ({
+        .map((addr, i) => ({
           address: addr,
           score: Number(scores[i]),
+          rank: i + 1,
         }))
-        .filter((entry: LeaderboardEntry) => entry.score > 0);
+        .filter((entry) => entry.score > 0);
 
-      console.log("✅ Formatted leaderboard:", formatted);
       setLeaderboard(formatted);
-    } catch (err: any) {
+      setTotalPlayers(formatted.length);
+      
+      console.log("✅ Leaderboard loaded:", formatted.length, "players");
+    } catch (err: unknown) {
       console.error("❌ Error loading leaderboard:", err);
-      console.error("❌ Error details:", err.message);
-      setError("Failed to load leaderboard. Check console for details.");
+      setError("Failed to load leaderboard");
     } finally {
       setLoading(false);
     }
@@ -55,27 +73,26 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ txHash }) => {
   useEffect(() => {
     loadLeaderboard();
 
+    // Set up event listener for score submissions
     const setupEventListener = async () => {
+      if (!publicClient) return;
+
       try {
-        let provider;
-        if (window.ethereum) {
-          provider = new ethers.BrowserProvider(window.ethereum);
-        } else {
-          provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
-        }
-        
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider);
+        const unwatch = publicClient.watchContractEvent({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: contractABI,
+          eventName: 'ScoreSubmitted',
+          onLogs: (logs) => {
+            console.log("🎯 New score event detected");
+            setTimeout(() => {
+              console.log("🔄 Refreshing leaderboard...");
+              loadLeaderboard();
+            }, 2000);
+          },
+        });
 
-        const handleScoreSubmitted = () => {
-          setTimeout(() => {
-            loadLeaderboard();
-          }, 2000);
-        };
-
-        contract.on("ScoreSubmitted", handleScoreSubmitted);
-        
         return () => {
-          contract.off("ScoreSubmitted", handleScoreSubmitted);
+          unwatch();
         };
       } catch (err) {
         console.error("Error setting up event listener:", err);
@@ -83,127 +100,157 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ txHash }) => {
     };
 
     setupEventListener();
-  }, []);
+  }, [publicClient]);
 
+  // Reload when new transaction is confirmed
   useEffect(() => {
     if (txHash) {
+      console.log("✅ New transaction detected:", txHash);
+      console.log("🔄 Refreshing leaderboard in 3 seconds...");
       setTimeout(() => {
         loadLeaderboard();
       }, 3000);
     }
   }, [txHash]);
 
+  const getMedalEmoji = (rank: number) => {
+    if (rank === 1) return "🥇";
+    if (rank === 2) return "🥈";
+    if (rank === 3) return "🥉";
+    return `#${rank}`;
+  };
+
+  // Pagination
+  const totalPages = Math.ceil(leaderboard.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const currentPlayers = leaderboard.slice(startIndex, endIndex);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
   return (
-    <div className="p-4 sm:p-6">
-      {/* Header */}
+    <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 backdrop-blur-md rounded-2xl shadow-2xl p-6 w-full max-w-md border border-slate-700/50">
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center text-2xl">
-            🏆
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white">Leaderboard</h2>
-            <p className="text-xs text-gray-400">Top 5 Players on Base</p>
-          </div>
+        <div>
+          <h2 className="font-bold text-2xl bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 text-transparent bg-clip-text">
+            🏆 Leaderboard
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Top {totalPlayers} Players
+          </p>
         </div>
         <button
           onClick={loadLeaderboard}
           disabled={loading}
-          className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-all disabled:opacity-50 border border-slate-700"
+          className="px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg text-sm transition-all disabled:opacity-50 border border-slate-600/50"
           title="Refresh leaderboard"
         >
-          {loading ? (
-            <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <span className="text-lg">🔄</span>
-          )}
+          {loading ? "⏳" : "🔄"}
         </button>
       </div>
 
-      {/* Leaderboard Content */}
       {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-sm text-gray-400">Loading leaderboard...</p>
+        <div className="flex flex-col items-center justify-center py-12">
+          <div className="animate-spin text-4xl mb-2">⏳</div>
+          <p className="text-sm text-slate-400">Loading...</p>
         </div>
       ) : error ? (
-        <div className="text-center py-12">
-          <div className="text-5xl mb-3">⚠️</div>
-          <p className="text-sm text-red-400 mb-4">{error}</p>
+        <div className="text-center py-8">
+          <p className="text-sm text-red-300 mb-3">{error}</p>
           <button
             onClick={loadLeaderboard}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-all"
+            className="px-4 py-2 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg text-sm transition-all"
           >
-            🔄 Try Again
+            Try Again
           </button>
         </div>
       ) : leaderboard.length === 0 ? (
-        <div className="text-center py-12 bg-slate-800/30 rounded-xl border border-slate-700">
-          <div className="text-6xl mb-3">🎮</div>
-          <p className="text-lg font-semibold text-white mb-1">No Players Yet</p>
-          <p className="text-sm text-gray-400">Be the first to submit a score!</p>
+        <div className="text-center py-12">
+          <div className="text-5xl mb-3">🎮</div>
+          <p className="text-slate-300">No players yet</p>
+          <p className="text-sm text-slate-500 mt-1">Be the first!</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {leaderboard.map((item, i) => (
-            <div
-              key={`${item.address}-${i}`}
-              className={`flex items-center justify-between rounded-xl px-4 py-4 transition-all ${
-                i === 0
-                  ? "bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/40"
-                  : i === 1
-                  ? "bg-gradient-to-r from-gray-400/20 to-gray-500/20 border-2 border-gray-400/40"
-                  : i === 2
-                  ? "bg-gradient-to-r from-orange-600/20 to-red-500/20 border-2 border-orange-500/40"
-                  : "bg-slate-800/50 border border-slate-700 hover:bg-slate-800/70"
-              }`}
-            >
-              {/* Rank & Address */}
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className={`text-3xl ${i < 3 ? 'animate-bounce' : ''}`}>
-                  {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (
-                    <div className="w-8 h-8 bg-slate-700 rounded-lg flex items-center justify-center text-sm font-bold text-gray-300">
-                      {i + 1}
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`font-mono text-sm font-semibold truncate ${
-                    i === 0 ? 'text-yellow-300' : 
-                    i === 1 ? 'text-gray-300' : 
-                    i === 2 ? 'text-orange-300' : 
-                    'text-blue-300'
-                  }`}>
+        <>
+          {/* Leaderboard List */}
+          <div className="space-y-2 mb-4">
+            {currentPlayers.map((item) => (
+              <div
+                key={`${item.address}-${item.rank}`}
+                className={`flex justify-between items-center rounded-xl px-4 py-3 shadow-lg transition-all hover:scale-102 ${
+                  item.rank === 1
+                    ? "bg-gradient-to-r from-yellow-600/30 to-yellow-500/30 border-2 border-yellow-400/50"
+                    : item.rank === 2
+                    ? "bg-gradient-to-r from-gray-400/30 to-gray-300/30 border-2 border-gray-300/50"
+                    : item.rank === 3
+                    ? "bg-gradient-to-r from-orange-600/30 to-orange-500/30 border-2 border-orange-400/50"
+                    : "bg-slate-700/30 border border-slate-600/30"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-2xl min-w-[50px] text-center ${
+                      item.rank <= 3 ? "animate-pulse" : ""
+                    }`}
+                  >
+                    {getMedalEmoji(item.rank)}
+                  </span>
+                  <span className="font-mono text-sm truncate max-w-[120px]">
                     {item.address.slice(0, 6)}...{item.address.slice(-4)}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {i === 0 ? '👑 Champion' : i === 1 ? '⭐ Runner-up' : i === 2 ? '🔥 Third Place' : 'Player'}
-                  </p>
+                  </span>
                 </div>
+                <span
+                  className={`font-bold text-xl ${
+                    item.rank === 1
+                      ? "text-yellow-300"
+                      : item.rank === 2
+                      ? "text-gray-200"
+                      : item.rank === 3
+                      ? "text-orange-300"
+                      : "text-blue-300"
+                  }`}
+                >
+                  {item.score}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
+              <button
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ← Prev
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-400">
+                  Page {currentPage} of {totalPages}
+                </span>
               </div>
 
-              {/* Score */}
-              <div className="text-right">
-                <p className={`text-2xl font-bold ${
-                  i === 0 ? 'text-yellow-300' : 
-                  i === 1 ? 'text-gray-300' : 
-                  i === 2 ? 'text-orange-300' : 
-                  'text-blue-300'
-                }`}>
-                  {item.score}
-                </p>
-                <p className="text-xs text-gray-500">points</p>
-              </div>
+              <button
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 rounded-lg text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
-      {/* Footer */}
-      <div className="mt-6 p-4 bg-slate-800/30 rounded-xl border border-slate-700">
-        <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
-          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-          <span>Live on Base • Updates automatically</span>
+      <div className="mt-6 pt-4 border-t border-slate-700/50">
+        <div className="text-xs text-slate-400 text-center space-y-1">
+          <div>🎯 Top {Math.min(100, totalPlayers)} players on Base</div>
+          <div className="text-slate-500">Updates in real-time</div>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import contractABI from "../SnakeOnChainABI.json";
 
-const CONTRACT_ADDRESS = "0xcC8E9a9CeBF3b3a6dd21BD79A7756E3d5f4C9061";
+const CONTRACT_ADDRESS = "0xd65573199aF4805dFbaF21143Cd6F651743D5590";
 
 type Point = { x: number; y: number };
 type Direction = { x: number; y: number };
