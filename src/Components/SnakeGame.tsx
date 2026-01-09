@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
-import { parseEther } from "viem";
 import contractABI from "../SnakeOnChainABI.json";
 
 const CONTRACT_ADDRESS = "0xcC8E9a9CeBF3b3a6dd21BD79A7756E3d5f4C9061";
@@ -45,7 +44,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       if (!occupied.has(`${x},${y}`)) return { x, y };
     }
     return { x: 0, y: 0 };
-  }, [cols, rows]);
+  }, []);
 
   const resetGame = useCallback(() => {
     const midX = Math.floor(cols / 2);
@@ -65,7 +64,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     setPaused(false);
     setTxHash(null);
     setStatus("");
-  }, [cols, rows, spawnFood, setTxHash, setStatus]);
+  }, [spawnFood, setTxHash, setStatus]);
 
   const updateSnake = useCallback(() => {
     if (!running || paused || snake.length === 0) return;
@@ -89,7 +88,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       setMoveDelay((d) => Math.max(d - 3, 80));
     }
     setSnake(newSnake);
-  }, [running, paused, snake, dir, food, cols, rows, spawnFood, setStatus]);
+  }, [running, paused, snake, dir, food, spawnFood, setStatus]);
 
   useEffect(() => {
     if (!running || paused) return;
@@ -151,7 +150,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       );
     });
     ctx.shadowBlur = 0;
-  }, [snake, food, cols, rows, cellSize]);
+  }, [snake, food]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -229,7 +228,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       return;
     }
 
-    if (!walletClient) {
+    if (!walletClient || !publicClient) {
       setStatus("⚠️ Wallet not ready. Please try again.");
       return;
     }
@@ -242,8 +241,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
     try {
       setStatus("⏳ Preparing transaction...");
 
-      // Use the connected wallet (Coinbase Wallet or MetaMask)
-      const { request } = await publicClient!.simulateContract({
+      const { request } = await publicClient.simulateContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: contractABI,
         functionName: 'submitScore',
@@ -258,7 +256,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       console.log("📤 Transaction sent:", hash);
       setStatus("⏳ Waiting for confirmation...");
 
-      const receipt = await publicClient!.waitForTransactionReceipt({ 
+      const receipt = await publicClient.waitForTransactionReceipt({ 
         hash,
         confirmations: 1 
       });
@@ -270,10 +268,9 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
         setTxHash(hash);
         setStatus("✅ Score submitted successfully on Base!");
 
-        // Fetch updated score
         setTimeout(async () => {
           try {
-            const data = await publicClient!.readContract({
+            const data = await publicClient.readContract({
               address: CONTRACT_ADDRESS as `0x${string}`,
               abi: contractABI,
               functionName: 'getMyScore',
@@ -290,10 +287,10 @@ const SnakeGame: React.FC<SnakeGameProps> = ({
       } else {
         setStatus("❌ Transaction failed");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("❌ Transaction error:", err);
 
-      const errorMessage = err?.message || String(err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
       
       if (errorMessage.includes("User rejected") || errorMessage.includes("user rejected")) {
         setStatus("❌ Transaction rejected");
