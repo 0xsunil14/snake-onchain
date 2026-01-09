@@ -23,15 +23,16 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ txHash }) => {
       setLoading(true);
       setError(null);
       
-      let provider;
-      if (window.ethereum) {
-        provider = new ethers.BrowserProvider(window.ethereum);
-      } else {
-        provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
-      }
+      // Always use Base mainnet RPC
+      const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
       
       const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider);
+      
+      console.log("📊 Fetching leaderboard from contract:", CONTRACT_ADDRESS);
       const [addresses, scores] = await contract.getLeaderboard();
+
+      console.log("📊 Raw data - Addresses:", addresses);
+      console.log("📊 Raw data - Scores:", scores);
 
       const formatted: LeaderboardEntry[] = addresses
         .map((addr: string, i: number) => ({
@@ -40,10 +41,12 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ txHash }) => {
         }))
         .filter((entry: LeaderboardEntry) => entry.score > 0);
 
+      console.log("✅ Formatted leaderboard:", formatted);
       setLeaderboard(formatted);
     } catch (err: any) {
       console.error("❌ Error loading leaderboard:", err);
-      setError("Failed to load leaderboard");
+      console.error("❌ Error details:", err.message);
+      setError("Failed to load leaderboard. Check console for details.");
     } finally {
       setLoading(false);
     }

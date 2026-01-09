@@ -1,0 +1,42 @@
+{
+  "accountAssociation": {
+    "header": "YOUR_HEADER_HERE",
+    "payload": "YOUR_PAYLOAD_HERE",
+    "signature": "YOUR_SIGNATURE_HERE"
+  },
+  "frame": {
+    "version": "next",
+    "name": "Snake On-Chain",
+    "iconUrl": "https://snake-onchain.vercel.app/icon.png",
+    "splashImageUrl": "https://snake-onchain.vercel.app/splash.png",
+    "splashBackgroundColor": "#0f172a",
+    "homeUrl": "https://snake-onchain.vercel.app",
+    "webhookUrl": "https://snake-onchain.vercel.app/api/webhook"
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Snake On-Chain",
+    "subtitle": "Classic Snake meets Web3 🐍",
+    "description": "Play the classic Snake game and submit your high score on-chain. Compete on the global leaderboard powered by Base blockchain. Free to play, only gas fees to submit scores!",
+    "screenshotUrls": [
+      "https://snake-onchain.vercel.app/screenshot1.png",
+      "https://snake-onchain.vercel.app/screenshot2.png",
+      "https://snake-onchain.vercel.app/screenshot3.png"
+    ],
+    "iconUrl": "https://snake-onchain.vercel.app/icon.png",
+    "homeUrl": "https://snake-onchain.vercel.app",
+    "imageUrl": "https://snake-onchain.vercel.app/hero.png",
+    "buttonTitle": "Play Now",
+    "splashImageUrl": "https://snake-onchain.vercel.app/splash.png",
+    "heroImageUrl": "https://snake-onchain.vercel.app/hero.png",
+    "splashBackgroundColor": "#0f172a",
+    "primaryCategory": "gaming",
+    "secondaryCategory": "arcade",
+    "tags": ["game", "arcade", "snake", "blockchain", "leaderboard", "competitive", "casual", "onchain"],
+    "featured": true,
+    "social": {
+      "twitter": "your_twitter_handle",
+      "website": "https://snake-onchain.vercel.app"
+    }
+  }
+}
